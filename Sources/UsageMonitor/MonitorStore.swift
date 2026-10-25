@@ -66,7 +66,7 @@ import UserNotifications
       snapshots[provider] = try? Storage.read(Snapshot.self, from: cacheURL(provider))
     }
     timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-      Task { @MainActor in await self?.refresh() }
+      Task { @MainActor [weak self] in await self?.refresh() }
     }
     Task {
       await refresh(force: true)
@@ -74,13 +74,14 @@ import UserNotifications
     }
   }
   var visibleProviders: [Provider] { Provider.allCases.filter { preferences.enabled.contains($0) } }
-  var highestUsage: Int? {
-    let now = Date()
-    return visibleProviders.compactMap { provider -> Double? in
-      guard errors[provider] == nil, let snapshot = snapshots[provider], snapshot.isFresh(at: now)
-      else { return nil }
-      return snapshot.windows.filter { !$0.expired(at: now) }.map(\.usedPercent).max()
-    }.max().map { Int($0.rounded()) }
+  var menuBarReading: MenuBarReading? {
+    MenuBarReading.resolve(
+      preferences: preferences, snapshots: snapshots,
+      failedProviders: Set(errors.keys))
+  }
+  var menuBarWindows: [UsageWindow] {
+    guard let provider = preferences.menuBarSource.provider else { return [] }
+    return snapshots[provider]?.windows ?? []
   }
   func cacheURL(_ provider: Provider) -> URL {
     Storage.directory.appendingPathComponent("\(provider.rawValue).json")

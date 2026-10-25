@@ -7,6 +7,8 @@ public struct Preferences: Codable {
   public var codexExecutable = CodexClient.locateExecutable()
   public var alertMode: AlertMode = .threshold
   public var alertInterval = 10
+  public var menuBarSource: MenuBarSource = .highest
+  public var menuBarWindowID: String?
 
   public init() {}
 
@@ -16,6 +18,7 @@ public struct Preferences: Codable {
 
   private enum CodingKeys: String, CodingKey {
     case enabled, threshold, notifications, codexExecutable, alertMode, alertInterval
+    case menuBarSource, menuBarWindowID
   }
 
   public init(from decoder: Decoder) throws {
@@ -30,5 +33,8 @@ public struct Preferences: Codable {
     alertMode = try values.decodeIfPresent(AlertMode.self, forKey: .alertMode) ?? .threshold
     let interval = try values.decodeIfPresent(Int.self, forKey: .alertInterval) ?? 10
     alertInterval = [5, 10, 20, 25, 50].contains(interval) ? interval : 10
+    menuBarSource =
+      try values.decodeIfPresent(MenuBarSource.self, forKey: .menuBarSource) ?? .highest
+    menuBarWindowID = try values.decodeIfPresent(String.self, forKey: .menuBarWindowID)
   }
 }

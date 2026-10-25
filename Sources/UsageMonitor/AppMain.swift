@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import UsageCore
 import UserNotifications
@@ -10,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
   private var settingsWindow: NSWindow?
   private var store: MonitorStore!
   private var timer: Timer?
+  private var observations = Set<AnyCancellable>()
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.accessory)
@@ -24,27 +26,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     item.button?.toolTip = "Usage Monitor · AI 사용 한도"
     popover.behavior = .transient
     timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
-      Task { @MainActor in
-        guard let self else { return }
-        self.item.button?.title = self.store.highestUsage.map { " \($0)%" } ?? ""
-      }
+      Task { @MainActor [weak self] in self?.updateMenuBar() }
     }
+    // Published values notify before assignment; deliver on the next main-loop turn.
+    store.objectWillChange.receive(on: RunLoop.main).sink { [weak self] _ in
+      self?.updateMenuBar()
+      self?.resizePopover()
+    }.store(in: &observations)
+    updateMenuBar()
+  }
+  private func updateMenuBar() {
+    let source = store.preferences.menuBarSource
+    let reading = store.menuBarReading
+    item.button?.title = source == .iconOnly ? "" : reading.map { " \($0.percent)%" } ?? " —"
+    item.button?.image = NSImage(
+      systemSymbolName: source.provider?.symbol ?? "chart.bar.xaxis",
+      accessibilityDescription: "AI 사용량")
+    item.button?.toolTip =
+      reading.map { "\($0.provider.name) · \($0.window.name) · \($0.percent)% 사용" }
+      ?? (source == .iconOnly ? "Usage Monitor" : "\(source.name) · 최신 사용량 없음")
+  }
+  private func makeDashboard(panelHeight: CGFloat? = nil) -> DashboardView {
+    DashboardView(
+      store: store, openSettings: { [weak self] in self?.showSettings() },
+      panelHeight: panelHeight)
+  }
+  private func panelSize() -> NSSize {
+    // Measure the non-scrolling content, then cap it to the status item's display.
+    let measurement = NSHostingView(rootView: makeDashboard())
+    let available = (item.button?.window?.screen ?? NSScreen.main)?.visibleFrame.height ?? 700
+    return NSSize(
+      width: DashboardView.width,
+      height: min(ceil(measurement.fittingSize.height), 480, available - 32))
+  }
+  private func resizePopover() {
+    guard popover.isShown,
+      let controller = popover.contentViewController as? NSHostingController<DashboardView>
+    else { return }
+    let size = panelSize()
+    guard abs(popover.contentSize.height - size.height) > 1 else { return }
+    controller.rootView = makeDashboard(panelHeight: size.height)
+    popover.contentSize = size
   }
   @objc private func togglePopover() {
     if popover.isShown {
       popover.performClose(nil)
     } else if let button = item.button {
-      // Bound the entire panel before presenting it. Intrinsic ScrollView sizing can
-      // otherwise grow the hosting view past the screen and push its header offscreen.
-      let screen = button.window?.screen ?? NSScreen.main
-      let height = min(620, (screen?.visibleFrame.height ?? 700) - 32)
-      let controller = NSHostingController(
-        rootView: DashboardView(
-          store: store, openSettings: { [weak self] in self?.showSettings() },
-          panelHeight: height))
+      let size = panelSize()
+      let controller = NSHostingController(rootView: makeDashboard(panelHeight: size.height))
       controller.sizingOptions = []
       popover.contentViewController = controller
-      popover.contentSize = NSSize(width: 370, height: height)
+      popover.contentSize = size
       NSApp.activate(ignoringOtherApps: true)
       popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
       Task { await store.refresh() }
@@ -102,6 +134,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
       } catch {
         FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8))
         exit(1)
+      }
+    } else if CommandLine.arguments.contains("--check-layout") {
+      let app = NSApplication.shared
+      app.setActivationPolicy(.prohibited)
+      let store = MonitorStore(preview: true)
+      for providers: Set<Provider> in [Set(Provider.allCases), [.codex], []] {
+        store.preferences.enabled = providers
+        let host = NSHostingView(rootView: DashboardView(store: store, openSettings: {}))
+        let size = host.fittingSize
+        precondition(size.width == DashboardView.width && size.height > 60 && size.height < 360)
+        print("providers=\(providers.count) panel=\(Int(size.width))×\(Int(ceil(size.height)))")
       }
     } else if let index = CommandLine.arguments.firstIndex(of: "--render-preview"),
       CommandLine.arguments.count > index + 1

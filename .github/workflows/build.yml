@@ -13,7 +13,9 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+      - name: Swift toolchain
+        run: swift --version
       - name: Test
-        run: swift test
+        run: swift test -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
       - name: Package app
         run: ./scripts/build-app.sh

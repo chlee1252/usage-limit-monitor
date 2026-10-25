@@ -20,52 +20,50 @@ extension Provider {
 }
 
 struct DashboardView: View {
+  static let width: CGFloat = 300
   @ObservedObject var store: MonitorStore
   var openSettings: () -> Void
   var isPreview = false
-  var panelHeight: CGFloat = 620
+  // A nil height uses the natural content size for measurement and README rendering.
+  var panelHeight: CGFloat?
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      HStack(alignment: .top) {
-        VStack(alignment: .leading, spacing: 5) {
-          Text("Usage Monitor").font(.system(size: 20, weight: .semibold, design: .rounded))
-          Text("다음 작업 전에, 남은 여유를 확인하세요.").font(.system(size: 11)).foregroundStyle(.secondary)
-        }
+    VStack(spacing: 0) {
+      HStack {
+        Text("Usage Monitor").font(.system(size: 12, weight: .semibold))
         Spacer()
+        if isPreview { Text("예시").font(.system(size: 10)).foregroundStyle(.secondary) }
         Button {
           Task { await store.refresh(force: true) }
         } label: {
-          Image(systemName: "arrow.clockwise").font(.system(size: 14))
+          Image(systemName: "arrow.clockwise").font(.system(size: 11))
+            .frame(width: 22, height: 22)
         }
-        .buttonStyle(.plain).disabled(store.refreshing).help("사용량 새로고침")
-        .accessibilityLabel("사용량 새로고침")
+        .buttonStyle(.plain).disabled(store.refreshing)
+        .help("사용량 새로고침").accessibilityLabel("사용량 새로고침")
       }
-      .padding(22)
+      .padding(.horizontal, 14).frame(height: 34)
       Divider()
-      if isPreview {
+      if panelHeight == nil {
         providerRows(now: Date())
       } else {
         TimelineView(.periodic(from: .now, by: 30)) { context in
-          ScrollView {
-            providerRows(now: context.date)
-          }
-          .frame(maxHeight: .infinity)
+          ScrollView { providerRows(now: context.date) }
+            .frame(maxHeight: .infinity)
         }
       }
       Divider()
-      HStack(spacing: 7) {
-        Image(systemName: store.preferences.notifications ? "bell.badge" : "bell.slash")
+      HStack(spacing: 6) {
+        Image(systemName: store.preferences.notifications ? "bell" : "bell.slash")
         Text(store.preferences.notifications ? store.preferences.alertRule.summary : "알림 꺼짐")
         Spacer()
+        if store.refreshing { ProgressView().controlSize(.mini) }
+        Button(action: openSettings) {
+          Image(systemName: "gearshape").frame(width: 22, height: 22)
+        }.buttonStyle(.plain).help("설정").accessibilityLabel("설정 열기")
         if isPreview {
-          Text("예시 데이터").foregroundStyle(.secondary)
-        } else if store.refreshing {
-          ProgressView().controlSize(.mini)
-        }
-        Button(action: openSettings) { Image(systemName: "slider.horizontal.3") }
-          .buttonStyle(.plain).help("설정").accessibilityLabel("설정 열기")
-        if !isPreview {
+          Image(systemName: "ellipsis").frame(width: 18)
+        } else {
           Menu {
             Button("설정…", action: openSettings)
             Divider()
@@ -73,32 +71,32 @@ struct DashboardView: View {
           } label: {
             Image(systemName: "ellipsis")
           }
-          .menuStyle(.borderlessButton).frame(width: 20)
+          .menuStyle(.borderlessButton).frame(width: 18)
+          .accessibilityLabel("더 보기")
         }
       }
-      .font(.system(size: 11)).foregroundStyle(.secondary).padding(.horizontal, 22).padding(
-        .vertical, 15)
+      .font(.system(size: 10)).foregroundStyle(.secondary)
+      .padding(.horizontal, 14).frame(height: 32)
     }
-    .frame(width: 370)
-    .frame(height: isPreview ? nil : panelHeight)
+    .frame(width: Self.width, height: panelHeight)
     .background(Color(nsColor: .windowBackgroundColor))
   }
+
   private func providerRows(now: Date) -> some View {
-    VStack(alignment: .leading, spacing: 0) {
+    VStack(spacing: 0) {
       if store.visibleProviders.isEmpty {
-        VStack(alignment: .leading, spacing: 12) {
-          Text("확인할 AI를 선택해 주세요").font(.headline)
-          Text("설정에서 Codex, Claude Code, Gemini를 켤 수 있습니다.")
-            .font(.callout).foregroundStyle(.secondary)
-          Button("서비스 설정", action: openSettings)
-        }.padding(24)
+        HStack {
+          Text("표시할 AI를 선택하세요").font(.system(size: 11)).foregroundStyle(.secondary)
+          Spacer()
+          Button("설정", action: openSettings).controlSize(.small)
+        }.padding(14)
       }
       ForEach(store.visibleProviders) { provider in
         ProviderRow(
           provider: provider, snapshot: store.snapshots[provider],
           error: store.errors[provider], rule: store.preferences.alertRule,
           now: now, openSettings: openSettings)
-        if provider != store.visibleProviders.last { Divider().padding(.horizontal, 22) }
+        if provider != store.visibleProviders.last { Divider().padding(.horizontal, 14) }
       }
     }
   }
@@ -113,79 +111,67 @@ private struct ProviderRow: View {
   let openSettings: () -> Void
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 15) {
-      HStack(spacing: 9) {
-        Image(systemName: provider.symbol).font(.system(size: 17, weight: .medium))
-          .foregroundStyle(provider.tint).frame(width: 23)
-        Text(provider.name).font(.system(size: 14, weight: .semibold))
+    VStack(alignment: .leading, spacing: 4) {
+      HStack(spacing: 6) {
+        Image(systemName: provider.symbol).foregroundStyle(provider.tint).frame(width: 14)
+        Text(provider.name).fontWeight(.semibold)
         Spacer()
-        Text(status).font(.system(size: 10, weight: .medium))
-          .foregroundStyle(.secondary)
-      }
+        Text(status).font(.system(size: 9)).foregroundStyle(
+          error == nil ? Color.secondary : Color.orange)
+      }.font(.system(size: 11)).frame(height: 16).help(details)
       if let snapshot, !snapshot.windows.isEmpty {
         ForEach(snapshot.windows) { window in
-          VStack(spacing: 7) {
-            HStack(alignment: .firstTextBaseline) {
-              Text(window.name).font(.system(size: 11)).foregroundStyle(.secondary)
-              Spacer()
-              Text(window.expired(at: now) ? "—" : "\(Int(window.usedPercent.rounded()))%")
-                .font(.system(size: 20, weight: .medium, design: .rounded)).monospacedDigit()
-              Text("사용").font(.system(size: 10)).foregroundStyle(.secondary)
-            }
+          HStack(spacing: 6) {
+            Text(window.name).foregroundStyle(.secondary)
+              .lineLimit(1).truncationMode(.tail).frame(width: 47, alignment: .leading)
             UsageBar(
               percent: window.expired(at: now) ? 0 : window.usedPercent,
               rule: rule, tint: provider.tint,
               muted: window.expired(at: now) || !snapshot.isFresh(at: now) || error != nil)
-            HStack {
-              Text(window.expired(at: now) ? "리셋 지남 · 새 데이터 대기" : resetLabel(window.resetsAt))
-              Spacer()
-              if !window.expired(at: now), rule.mode == .increments {
-                Text(rule.summary)
-              } else if !window.expired(at: now), window.usedPercent >= Double(rule.threshold) {
-                Text("알림 기준 도달").foregroundStyle(.orange)
-              }
-            }.font(.system(size: 10)).foregroundStyle(.secondary)
+            Text(window.expired(at: now) ? "—" : "\(Int(window.usedPercent.rounded()))%")
+              .fontWeight(.medium).monospacedDigit().frame(width: 33, alignment: .trailing)
+            Text(resetLabel(window.resetsAt)).font(.system(size: 9))
+              .foregroundStyle(.secondary).lineLimit(1).frame(width: 44, alignment: .trailing)
           }
+          .font(.system(size: 11)).frame(height: 22)
+          .help(
+            "\(window.name) · \(window.resetsAt.map { "리셋: \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "리셋 시간 미제공")\n\(details)"
+          )
           .accessibilityElement(children: .combine)
         }
-        Text("마지막 확인 · \(ageLabel(snapshot.observedAt))")
-          .font(.system(size: 10)).foregroundStyle(.secondary)
       } else {
-        Text(
-          provider == .gemini
-            ? "직접 입력한 사용량을 표시합니다.\nGemini의 /stats model에서 확인해 주세요."
-            : provider == .claude
-              ? "상태 표시줄을 연결하면\nClaude Code의 한도가 여기에 표시됩니다." : "Codex CLI 로그인 후 사용량을 조회합니다."
-        )
-        .font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(4)
-        Button(provider == .gemini ? "사용량 입력" : "연결 설정", action: openSettings)
-          .font(.system(size: 11))
+        HStack {
+          Text(provider == .gemini ? "사용량 직접 입력" : error == nil ? "연결이 필요합니다" : "조회하지 못했습니다")
+            .foregroundStyle(.secondary)
+          Spacer()
+          Button(provider == .gemini ? "입력" : "연결", action: openSettings)
+            .buttonStyle(.plain).foregroundStyle(Color.accentColor)
+        }.font(.system(size: 10)).frame(height: 22).help(details)
       }
-      if let error {
-        Text(error).font(.system(size: 10)).foregroundStyle(.orange).fixedSize(
-          horizontal: false, vertical: true)
-      }
-    }.padding(.horizontal, 22).padding(.vertical, 18)
+    }.padding(.horizontal, 14).padding(.vertical, 9)
   }
+
   var status: String {
-    guard let snapshot, !snapshot.windows.isEmpty else { return "연결 대기" }
-    if error != nil { return "조회 실패 · 이전 값" }
+    if error != nil { return "조회 실패" }
+    guard let snapshot, !snapshot.windows.isEmpty else { return "" }
     if !snapshot.isFresh(at: now) { return "오래된 값" }
-    return snapshot.source
+    return provider == .gemini ? "직접 입력" : ""
+  }
+  var details: String {
+    if let error { return error }
+    guard let snapshot else {
+      return provider == .gemini ? "Gemini CLI의 /stats model에서 확인한 값을 설정에서 입력하세요." : "설정에서 연결하세요."
+    }
+    return
+      "\(snapshot.source) · 마지막 확인: \(snapshot.observedAt.formatted(date: .abbreviated, time: .shortened))"
   }
   func resetLabel(_ date: Date?) -> String {
-    guard let date else { return "리셋 시간 미제공" }
-    let seconds = max(0, Int(date.timeIntervalSince(now)))
-    if seconds >= 86400 { return "\(seconds / 86400)일 \((seconds % 86400) / 3600)시간 후 리셋" }
-    if seconds >= 3600 { return "\(seconds / 3600)시간 \((seconds % 3600) / 60)분 후 리셋" }
-    return "\(max(1, seconds / 60))분 후 리셋"
-  }
-  func ageLabel(_ date: Date) -> String {
-    let minutes = max(0, Int(now.timeIntervalSince(date) / 60))
-    if minutes == 0 { return "방금" }
-    if minutes < 60 { return "\(minutes)분 전" }
-    if minutes < 1440 { return "\(minutes / 60)시간 전" }
-    return "\(minutes / 1440)일 전"
+    guard let date else { return "시간 없음" }
+    let seconds = Int(date.timeIntervalSince(now))
+    if seconds <= 0 { return "갱신 대기" }
+    if seconds >= 86400 { return "\(seconds / 86400)일 후" }
+    if seconds >= 3600 { return "\(seconds / 3600)시간 후" }
+    return "\(max(1, seconds / 60))분 후"
   }
 }
 
@@ -205,11 +191,11 @@ struct UsageBar: View {
         )
         .frame(width: geometry.size.width * min(100, max(0, percent)) / 100)
         ForEach(rule.milestones, id: \.self) { milestone in
-          Rectangle().fill(Color.primary.opacity(0.35)).frame(width: 1, height: 12)
+          Rectangle().fill(Color.primary.opacity(0.25)).frame(width: 1)
             .offset(x: min(geometry.size.width - 1, geometry.size.width * Double(milestone) / 100))
         }
-      }.frame(height: 6)
-    }.frame(height: 8)
+      }
+    }.frame(height: 4)
       .accessibilityLabel("사용률 \(Int(percent))퍼센트, \(rule.summary)")
   }
 }
@@ -224,6 +210,38 @@ struct SettingsView: View {
     VStack(alignment: .leading, spacing: 0) {
       Text("설정").font(.system(size: 24, weight: .semibold, design: .rounded)).padding(24)
       Form {
+        Section("메뉴 막대") {
+          Picker(
+            "대표 사용량",
+            selection: Binding(
+              get: { store.preferences.menuBarSource },
+              set: { source in
+                store.preferences.menuBarSource = source
+                store.preferences.menuBarWindowID = nil
+                if let provider = source.provider { store.preferences.enabled.insert(provider) }
+                Task { await store.refresh() }
+              })
+          ) {
+            ForEach(MenuBarSource.allCases, id: \.self) { source in
+              Text(source.name).tag(source)
+            }
+          }
+          if store.preferences.menuBarSource.provider != nil {
+            Picker("한도 구간", selection: $store.preferences.menuBarWindowID) {
+              Text("이 AI에서 가장 높은 사용률").tag(nil as String?)
+              ForEach(store.menuBarWindows) { window in
+                Text(window.name).tag(Optional(window.id))
+              }
+              if let selected = store.preferences.menuBarWindowID,
+                !store.menuBarWindows.contains(where: { $0.id == selected })
+              {
+                Text("이전 선택 구간 · 데이터 없음").tag(Optional(selected))
+              }
+            }
+          }
+          Text("선택한 사용량이 없거나 오래되면 —로 표시합니다. 아이콘에 마우스를 올리면 어떤 한도인지 확인할 수 있습니다.")
+            .font(.caption).foregroundStyle(.secondary)
+        }
         Section("표시할 AI") {
           ForEach(Provider.allCases) { provider in
             Toggle(
