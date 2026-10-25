@@ -9,7 +9,7 @@ The panel is 300 points wide and fits its actual content (roughly 300 points tal
 The system background/label colors and the Codex `#1F7A6B`, Claude `#AD613B`, Gemini `#426ECA`, warning `#FF9500` palette remain. Use SF system at 10–12 points with tabular digits. A 14-point inset, 22-point quota row, and small service separators form a utility menu, with no cards or decorative motion. All controls have accessibility names. If quota rows exceed the available screen height, only the list scrolls.
 
 ```text
-Usage Monitor                      ↻
+Usage Monitor                   ↻  ⚙
 Codex
 5시간    ━━━━━━━━━│────  42%   2시간
 7일      ━━━━━━━━━│────  68%     2일
@@ -21,10 +21,12 @@ Claude Code
 Gemini                    직접 입력
 일일     ━━━──────│────  24%   8시간
 ───────────────────────────────────
-80%에서 알림                    ⚙  ⋯
+80%에서 알림                     종료
 ```
 
 Review: retain separate quota windows, rather than compressing a provider into an ambiguous single percentage. Remove repeated labels and empty space. The menu bar percentage can independently select a provider and quota window; missing selections never silently switch to a different provider.
+
+Interaction revision: settings now has a dedicated 24 × 24 point target in the header, next to refresh. The narrow native overflow menu was removed; a separate quit button occupies the footer. Dismiss the popover on outside clicks, app deactivation, Escape, or the status item's toggle. Event monitors are installed only while it is open and removed on close.
 
 ## Original direction
 

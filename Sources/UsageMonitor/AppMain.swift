@@ -5,13 +5,17 @@ import UsageCore
 import UserNotifications
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate,
+  UNUserNotificationCenterDelegate
+{
   private var item: NSStatusItem!
   private let popover = NSPopover()
   private var settingsWindow: NSWindow?
   private var store: MonitorStore!
   private var timer: Timer?
   private var observations = Set<AnyCancellable>()
+  private var outsideClickMonitor: Any?
+  private var localClickMonitor: Any?
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.accessory)
@@ -24,7 +28,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
       systemSymbolName: "chart.bar.xaxis", accessibilityDescription: "AI 사용량")
     item.button?.imagePosition = .imageLeading
     item.button?.toolTip = "Usage Monitor · AI 사용 한도"
-    popover.behavior = .transient
+    // One explicit dismissal path avoids the status-item mouse-down closing a
+    // transient popover before its mouse-up action immediately opens it again.
+    popover.behavior = .applicationDefined
+    popover.delegate = self
     timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
       Task { @MainActor [weak self] in self?.updateMenuBar() }
     }
@@ -79,8 +86,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
       popover.contentSize = size
       NSApp.activate(ignoringOtherApps: true)
       popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+      popover.contentViewController?.view.window?.makeKey()
+      startDismissalMonitoring()
       Task { await store.refresh() }
     }
+  }
+  func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool
+  {
+    if !popover.isShown { togglePopover() }
+    return false
+  }
+  func applicationDidResignActive(_ notification: Notification) {
+    popover.performClose(nil)
+  }
+  private func startDismissalMonitoring() {
+    stopDismissalMonitoring()
+    outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
+      matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+    ) { [weak self] _ in
+      Task { @MainActor [weak self] in self?.popover.performClose(nil) }
+    }
+    localClickMonitor = NSEvent.addLocalMonitorForEvents(
+      matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]
+    ) { [weak self] event in
+      // AppKit delivers local event monitors on the main thread. Keep the click
+      // synchronous and return it so the destination control still receives it.
+      let consumed = MainActor.assumeIsolated { self?.handleDismissalEvent(event) ?? false }
+      return consumed ? nil : event
+    }
+  }
+  private func handleDismissalEvent(_ event: NSEvent) -> Bool {
+    guard popover.isShown else { return false }
+    if event.type == .keyDown {
+      if event.keyCode == 53 {
+        popover.performClose(nil)
+        return true
+      }
+      return false
+    }
+    // The status button owns its toggle action; clicking inside the panel must
+    // not dismiss it before a SwiftUI button handles the event.
+    if event.window !== popover.contentViewController?.view.window,
+      event.window !== item.button?.window
+    {
+      popover.performClose(nil)
+    }
+    return false
+  }
+  private func stopDismissalMonitoring() {
+    if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor) }
+    if let localClickMonitor { NSEvent.removeMonitor(localClickMonitor) }
+    outsideClickMonitor = nil
+    localClickMonitor = nil
+  }
+  func popoverDidClose(_ notification: Notification) { stopDismissalMonitoring() }
+  func applicationWillTerminate(_ notification: Notification) {
+    stopDismissalMonitoring()
+    timer?.invalidate()
   }
   func showSettings() {
     popover.performClose(nil)

@@ -41,6 +41,12 @@ struct DashboardView: View {
         }
         .buttonStyle(.plain).disabled(store.refreshing)
         .help("사용량 새로고침").accessibilityLabel("사용량 새로고침")
+        Button(action: openSettings) {
+          Image(systemName: "gearshape").font(.system(size: 11))
+            .frame(width: 24, height: 24).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).fixedSize()
+        .help("설정").accessibilityLabel("설정 열기")
       }
       .padding(.horizontal, 14).frame(height: 34)
       Divider()
@@ -58,22 +64,9 @@ struct DashboardView: View {
         Text(store.preferences.notifications ? store.preferences.alertRule.summary : "알림 꺼짐")
         Spacer()
         if store.refreshing { ProgressView().controlSize(.mini) }
-        Button(action: openSettings) {
-          Image(systemName: "gearshape").frame(width: 22, height: 22)
-        }.buttonStyle(.plain).help("설정").accessibilityLabel("설정 열기")
-        if isPreview {
-          Image(systemName: "ellipsis").frame(width: 18)
-        } else {
-          Menu {
-            Button("설정…", action: openSettings)
-            Divider()
-            Button("종료") { NSApp.terminate(nil) }.keyboardShortcut("q")
-          } label: {
-            Image(systemName: "ellipsis")
-          }
-          .menuStyle(.borderlessButton).frame(width: 18)
-          .accessibilityLabel("더 보기")
-        }
+        Button("종료") { NSApp.terminate(nil) }
+          .buttonStyle(.plain).frame(width: 28, height: 24)
+          .contentShape(Rectangle()).keyboardShortcut("q")
       }
       .font(.system(size: 10)).foregroundStyle(.secondary)
       .padding(.horizontal, 14).frame(height: 32)
