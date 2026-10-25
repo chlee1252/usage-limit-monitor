@@ -196,6 +196,7 @@ struct UsageBar: View {
 struct SettingsView: View {
   @ObservedObject var store: MonitorStore
   var panelHeight: CGFloat = 720
+  @FocusState private var launchAtLoginFocused: Bool
   @State private var geminiPercent = 0.0
   @State private var geminiReset = Calendar.current.date(byAdding: .day, value: 1, to: Date())!
 
@@ -203,6 +204,24 @@ struct SettingsView: View {
     VStack(alignment: .leading, spacing: 0) {
       Text("설정").font(.system(size: 24, weight: .semibold, design: .rounded)).padding(24)
       Form {
+        Section("일반") {
+          Toggle(
+            "로그인 시 자동 실행",
+            isOn: Binding(
+              get: { store.launchAtLoginEnabled },
+              set: { enabled in Task { await store.setLaunchAtLogin(enabled) } })
+          )
+          .focusable()
+          .focused($launchAtLoginFocused)
+          .disabled(store.updatingLoginItem)
+          Text("Mac에 로그인하면 메뉴 막대에서 자동으로 시작합니다.")
+            .font(.caption).foregroundStyle(.secondary)
+          if store.loginItemStatus == .requiresApproval {
+            Text("자동 실행하려면 시스템 설정에서 Usage Monitor를 허용해 주세요.")
+              .font(.caption).foregroundStyle(.secondary)
+            Button("로그인 항목 열기", action: store.openLoginItemSettings)
+          }
+        }
         Section("메뉴 막대") {
           Picker(
             "대표 사용량",
@@ -349,6 +368,7 @@ struct SettingsView: View {
           destination: URL(string: "https://github.com/chlee1252/usage-limit-monitor#readme")!)
       }.font(.caption).padding(16)
     }.frame(width: 540, height: panelHeight)
+      .defaultFocus($launchAtLoginFocused, true)
       .onAppear {
         if let window = store.snapshots[.gemini]?.windows.first {
           geminiPercent = window.usedPercent

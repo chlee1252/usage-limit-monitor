@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 import SwiftUI
 import UsageCore
 import UserNotifications
@@ -10,6 +11,8 @@ import UserNotifications
   @Published var refreshing = false
   @Published var notice: String?
   @Published var permission = "꺼짐"
+  @Published private(set) var loginItemStatus: SMAppService.Status = .notRegistered
+  @Published private(set) var updatingLoginItem = false
   private var ledger: AlertLedger
   private var timer: Timer?
   private var lastCodexAttempt = Date.distantPast
@@ -62,6 +65,7 @@ import UserNotifications
       ]
       return
     }
+    updateLoginItemStatus()
     for provider in Provider.allCases {
       snapshots[provider] = try? Storage.read(Snapshot.self, from: cacheURL(provider))
     }
@@ -91,6 +95,38 @@ import UserNotifications
     do { try Storage.save(preferences, to: preferencesURL) } catch {
       notice = "설정 저장 실패: \(error.localizedDescription)"
     }
+  }
+  var launchAtLoginEnabled: Bool { loginItemStatus == .enabled }
+
+  func updateLoginItemStatus() {
+    guard !preview else { return }
+    // macOS owns this preference; a saved Boolean would drift from System Settings.
+    loginItemStatus = SMAppService.mainApp.status
+  }
+  func setLaunchAtLogin(_ enabled: Bool) async {
+    guard !preview, !updatingLoginItem else { return }
+    updatingLoginItem = true
+    defer {
+      updateLoginItemStatus()
+      updatingLoginItem = false
+    }
+    do {
+      let service = SMAppService.mainApp
+      if enabled {
+        switch service.status {
+        case .enabled: break
+        case .requiresApproval: openLoginItemSettings()
+        default: try service.register()
+        }
+      } else if service.status != .notRegistered {
+        try await service.unregister()
+      }
+    } catch {
+      notice = "자동 실행 설정 실패: \(error.localizedDescription)"
+    }
+  }
+  func openLoginItemSettings() {
+    SMAppService.openSystemSettingsLoginItems()
   }
   func refresh(force: Bool = false) async {
     guard !preview, !refreshing else { return }

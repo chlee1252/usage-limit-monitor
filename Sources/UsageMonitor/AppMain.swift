@@ -99,6 +99,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate,
   func applicationDidResignActive(_ notification: Notification) {
     popover.performClose(nil)
   }
+  func applicationDidBecomeActive(_ notification: Notification) {
+    store?.updateLoginItemStatus()
+  }
   private func startDismissalMonitoring() {
     stopDismissalMonitoring()
     outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
@@ -146,6 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate,
   }
   func showSettings() {
     popover.performClose(nil)
+    store.updateLoginItemStatus()
     let screen = item.button?.window?.screen ?? NSScreen.main
     let height = min(780, (screen?.visibleFrame.height ?? 840) - 60)
     if settingsWindow == nil {
