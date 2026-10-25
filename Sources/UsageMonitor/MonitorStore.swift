@@ -120,8 +120,7 @@ import UserNotifications
     await evaluateAlerts()
   }
   func updatePermission() async {
-    let settings = await UNUserNotificationCenter.current().notificationSettings()
-    switch settings.authorizationStatus {
+    switch await Notifications.authorizationStatus() {
     case .authorized, .provisional: permission = "허용됨"
     case .denied: permission = "시스템 설정에서 알림을 허용해 주세요"
     default: permission = "권한 요청 전"
@@ -131,8 +130,7 @@ import UserNotifications
     guard !preview else { return }
     if enabled {
       do {
-        preferences.notifications = try await UNUserNotificationCenter.current()
-          .requestAuthorization(options: [.alert, .sound])
+        preferences.notifications = try await Notifications.requestAuthorization()
       } catch { notice = "알림 설정 실패: \(error.localizedDescription)" }
     } else {
       preferences.notifications = false
@@ -142,22 +140,17 @@ import UserNotifications
   }
   func testNotification() async {
     do {
-      let content = UNMutableNotificationContent()
-      content.title = "Usage Monitor"
-      content.body = "설정한 사용률에 도달하면 이렇게 알려드려요."
-      content.sound = .default
-      try await UNUserNotificationCenter.current().add(
-        UNNotificationRequest(identifier: "test", content: content, trigger: nil))
+      try await Notifications.post(
+        identifier: "test", title: "Usage Monitor",
+        body: "설정한 사용률에 도달하면 이렇게 알려드려요.")
     } catch { notice = "테스트 알림 실패: \(error.localizedDescription)" }
   }
   private func evaluateAlerts() async {
     guard !preview, preferences.notifications, !evaluating else { return }
     evaluating = true
     defer { evaluating = false }
-    let center = UNUserNotificationCenter.current()
-    let settings = await center.notificationSettings()
-    guard
-      settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional
+    let authorization = await Notifications.authorizationStatus()
+    guard authorization == .authorized || authorization == .provisional
     else { return }
     let rule = preferences.alertRule
     for provider in visibleProviders {
@@ -167,18 +160,15 @@ import UserNotifications
           preferences.enabled.contains(provider)
         else { continue }
         let window = alert.window
-        let content = UNMutableNotificationContent()
-        content.title = "\(provider.name) 사용량 \(Int(window.usedPercent.rounded()))%"
-        content.body =
+        let title = "\(provider.name) 사용량 \(Int(window.usedPercent.rounded()))%"
+        let body =
           rule.mode == .threshold
           ? "\(window.name) 한도가 알림 기준 \(alert.milestone)%에 도달했습니다."
           : "\(window.name) 한도가 \(alert.milestone)% 구간에 도달했습니다. \(rule.interval)%마다 알려드려요."
-        content.sound = .default
         do {
-          try await center.add(
-            UNNotificationRequest(
-              identifier: ledger.key(provider: provider, alert: alert, rule: rule),
-              content: content, trigger: nil))
+          try await Notifications.post(
+            identifier: ledger.key(provider: provider, alert: alert, rule: rule),
+            title: title, body: body)
           ledger.mark(provider: provider, alert: alert, rule: rule)
           try Storage.save(ledger, to: ledgerURL)
         } catch { notice = "알림 처리 실패: \(error.localizedDescription)" }

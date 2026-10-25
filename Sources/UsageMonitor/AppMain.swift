@@ -120,13 +120,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
 @main struct UsageMonitorMain {
   @MainActor static func main() throws {
-    if CommandLine.arguments.contains("--capture-claude") {
+    let arguments = ProcessInfo.processInfo.arguments
+    if arguments.contains("--capture-claude") {
       do {
         let data = FileHandle.standardInput.readDataToEndOfFile()
         let snapshot = try UsageParser.claude(data)
         try Storage.save(snapshot, to: Storage.directory.appendingPathComponent("claude.json"))
       } catch { exit(1) }
-    } else if CommandLine.arguments.contains("--check-codex") {
+    } else if arguments.contains("--check-codex") {
       do {
         let snapshot = try CodexClient.read(executable: CodexClient.locateExecutable())
         let data = try JSONEncoder().encode(snapshot)
@@ -135,7 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8))
         exit(1)
       }
-    } else if CommandLine.arguments.contains("--check-layout") {
+    } else if arguments.contains("--check-layout") {
       let app = NSApplication.shared
       app.setActivationPolicy(.prohibited)
       let store = MonitorStore(preview: true)
@@ -146,8 +147,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         precondition(size.width == DashboardView.width && size.height > 60 && size.height < 360)
         print("providers=\(providers.count) panel=\(Int(size.width))×\(Int(ceil(size.height)))")
       }
-    } else if let index = CommandLine.arguments.firstIndex(of: "--render-preview"),
-      CommandLine.arguments.count > index + 1
+    } else if let index = arguments.firstIndex(of: "--render-preview"),
+      arguments.count > index + 1
     {
       let app = NSApplication.shared
       app.setActivationPolicy(.prohibited)
@@ -160,7 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let bitmap = NSBitmapImageRep(data: tiff),
         let png = bitmap.representation(using: .png, properties: [:])
       {
-        try png.write(to: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
+        try png.write(to: URL(fileURLWithPath: arguments[index + 1]))
       } else {
         exit(1)
       }
