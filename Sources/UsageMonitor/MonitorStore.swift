@@ -119,7 +119,18 @@ import UserNotifications
         default: try service.register()
         }
       } else if service.status != .notRegistered {
-        try await service.unregister()
+        // Keep SMAppService on the main actor on older SDKs as well. Only the
+        // Sendable continuation crosses into the completion handler's queue.
+        try await withCheckedThrowingContinuation {
+          (continuation: CheckedContinuation<Void, Error>) in
+          service.unregister { error in
+            if let error {
+              continuation.resume(throwing: error)
+            } else {
+              continuation.resume()
+            }
+          }
+        }
       }
     } catch {
       notice = "자동 실행 설정 실패: \(error.localizedDescription)"
