@@ -23,6 +23,7 @@ struct DashboardView: View {
   @ObservedObject var store: MonitorStore
   var openSettings: () -> Void
   var isPreview = false
+  var panelHeight: CGFloat = 620
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -49,14 +50,13 @@ struct DashboardView: View {
           ScrollView {
             providerRows(now: context.date)
           }
-          .frame(maxHeight: 500)
-          .fixedSize(horizontal: false, vertical: true)
+          .frame(maxHeight: .infinity)
         }
       }
       Divider()
       HStack(spacing: 7) {
         Image(systemName: store.preferences.notifications ? "bell.badge" : "bell.slash")
-        Text(store.preferences.notifications ? "\(store.preferences.threshold)%에서 알림" : "알림 꺼짐")
+        Text(store.preferences.notifications ? store.preferences.alertRule.summary : "알림 꺼짐")
         Spacer()
         if isPreview {
           Text("예시 데이터").foregroundStyle(.secondary)
@@ -80,6 +80,7 @@ struct DashboardView: View {
         .vertical, 15)
     }
     .frame(width: 370)
+    .frame(height: isPreview ? nil : panelHeight)
     .background(Color(nsColor: .windowBackgroundColor))
   }
   private func providerRows(now: Date) -> some View {
@@ -95,7 +96,7 @@ struct DashboardView: View {
       ForEach(store.visibleProviders) { provider in
         ProviderRow(
           provider: provider, snapshot: store.snapshots[provider],
-          error: store.errors[provider], threshold: store.preferences.threshold,
+          error: store.errors[provider], rule: store.preferences.alertRule,
           now: now, openSettings: openSettings)
         if provider != store.visibleProviders.last { Divider().padding(.horizontal, 22) }
       }
@@ -107,7 +108,7 @@ private struct ProviderRow: View {
   let provider: Provider
   let snapshot: Snapshot?
   let error: String?
-  let threshold: Int
+  let rule: AlertRule
   let now: Date
   let openSettings: () -> Void
 
@@ -133,12 +134,14 @@ private struct ProviderRow: View {
             }
             UsageBar(
               percent: window.expired(at: now) ? 0 : window.usedPercent,
-              threshold: threshold, tint: provider.tint,
+              rule: rule, tint: provider.tint,
               muted: window.expired(at: now) || !snapshot.isFresh(at: now) || error != nil)
             HStack {
               Text(window.expired(at: now) ? "리셋 지남 · 새 데이터 대기" : resetLabel(window.resetsAt))
               Spacer()
-              if !window.expired(at: now), window.usedPercent >= Double(threshold) {
+              if !window.expired(at: now), rule.mode == .increments {
+                Text(rule.summary)
+              } else if !window.expired(at: now), window.usedPercent >= Double(rule.threshold) {
                 Text("알림 기준 도달").foregroundStyle(.orange)
               }
             }.font(.system(size: 10)).foregroundStyle(.secondary)
@@ -188,7 +191,7 @@ private struct ProviderRow: View {
 
 struct UsageBar: View {
   let percent: Double
-  let threshold: Int
+  let rule: AlertRule
   let tint: Color
   var muted = false
   var body: some View {
@@ -196,19 +199,24 @@ struct UsageBar: View {
       ZStack(alignment: .leading) {
         Capsule().fill(Color.primary.opacity(0.07))
         Capsule().fill(
-          muted ? Color.secondary.opacity(0.35) : percent >= Double(threshold) ? Color.orange : tint
+          muted
+            ? Color.secondary.opacity(0.35)
+            : rule.mode == .threshold && percent >= Double(rule.threshold) ? Color.orange : tint
         )
         .frame(width: geometry.size.width * min(100, max(0, percent)) / 100)
-        Rectangle().fill(Color.primary.opacity(0.45)).frame(width: 1, height: 12)
-          .offset(x: geometry.size.width * Double(threshold) / 100)
+        ForEach(rule.milestones, id: \.self) { milestone in
+          Rectangle().fill(Color.primary.opacity(0.35)).frame(width: 1, height: 12)
+            .offset(x: min(geometry.size.width - 1, geometry.size.width * Double(milestone) / 100))
+        }
       }.frame(height: 6)
     }.frame(height: 8)
-      .accessibilityLabel("사용률 \(Int(percent))퍼센트, 알림 기준 \(threshold)퍼센트")
+      .accessibilityLabel("사용률 \(Int(percent))퍼센트, \(rule.summary)")
   }
 }
 
 struct SettingsView: View {
   @ObservedObject var store: MonitorStore
+  var panelHeight: CGFloat = 720
   @State private var geminiPercent = 0.0
   @State private var geminiReset = Calendar.current.date(byAdding: .day, value: 1, to: Date())!
 
@@ -234,20 +242,37 @@ struct SettingsView: View {
         }
         Section("사용량 알림") {
           Toggle(
-            "한도에 가까워지면 알림",
+            "사용량 알림 받기",
             isOn: Binding(
               get: { store.preferences.notifications },
               set: { value in
                 Task { await store.enableNotifications(value) }
               }))
-          HStack {
-            Slider(
-              value: Binding(
-                get: { Double(store.preferences.threshold) },
-                set: { store.preferences.threshold = Int($0) }), in: 10...100, step: 5)
-            Text("\(store.preferences.threshold)%").monospacedDigit().frame(width: 44)
+          Picker("알림 방식", selection: $store.preferences.alertMode) {
+            Text("지정 비율 도달 시").tag(AlertMode.threshold)
+            Text("일정 비율마다").tag(AlertMode.increments)
+          }.pickerStyle(.segmented)
+          if store.preferences.alertMode == .threshold {
+            HStack {
+              Text("알림 기준")
+              Slider(
+                value: Binding(
+                  get: { Double(store.preferences.threshold) },
+                  set: { store.preferences.threshold = Int($0) }), in: 10...100, step: 5)
+              Text("\(store.preferences.threshold)%").monospacedDigit().frame(width: 44)
+            }
+            Text("사용률이 \(store.preferences.threshold)%에 도달하면 한 번 알립니다. 한도가 리셋되면 다시 알립니다.")
+              .font(.caption).foregroundStyle(.secondary)
+          } else {
+            Picker("알림 간격", selection: $store.preferences.alertInterval) {
+              ForEach([5, 10, 20, 25, 50], id: \.self) { interval in
+                Text("\(interval)%마다").tag(interval)
+              }
+            }
+            Text("예: 10% 간격이면 10%, 20%, 30%…에서 알립니다. 여러 구간을 한 번에 넘으면 가장 높은 구간만 알립니다.")
+              .font(.caption).foregroundStyle(.secondary)
           }
-          Text("각 한도 구간마다 한 번 알립니다. 15분 이상 지난 값은 알림에서 제외합니다.")
+          Text("15분 이상 지난 값은 알림에서 제외합니다. 새 설정은 다음 사용량 확인부터 적용됩니다.")
             .font(.caption).foregroundStyle(.secondary)
           HStack {
             Text(store.permission).font(.caption).foregroundStyle(.secondary)
@@ -312,7 +337,7 @@ struct SettingsView: View {
           "연결 및 설치 안내",
           destination: URL(string: "https://github.com/chlee1252/usage-limit-monitor#readme")!)
       }.font(.caption).padding(16)
-    }.frame(width: 540, height: 780)
+    }.frame(width: 540, height: panelHeight)
       .onAppear {
         if let window = store.snapshots[.gemini]?.windows.first {
           geminiPercent = window.usedPercent

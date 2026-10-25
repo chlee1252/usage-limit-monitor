@@ -23,8 +23,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     item.button?.imagePosition = .imageLeading
     item.button?.toolTip = "Usage Monitor · AI 사용 한도"
     popover.behavior = .transient
-    popover.contentViewController = NSHostingController(
-      rootView: DashboardView(store: store, openSettings: { [weak self] in self?.showSettings() }))
     timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
       Task { @MainActor in
         guard let self else { return }
@@ -36,6 +34,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     if popover.isShown {
       popover.performClose(nil)
     } else if let button = item.button {
+      // Bound the entire panel before presenting it. Intrinsic ScrollView sizing can
+      // otherwise grow the hosting view past the screen and push its header offscreen.
+      let screen = button.window?.screen ?? NSScreen.main
+      let height = min(620, (screen?.visibleFrame.height ?? 700) - 32)
+      let controller = NSHostingController(
+        rootView: DashboardView(
+          store: store, openSettings: { [weak self] in self?.showSettings() },
+          panelHeight: height))
+      controller.sizingOptions = []
+      popover.contentViewController = controller
+      popover.contentSize = NSSize(width: 370, height: height)
       NSApp.activate(ignoringOtherApps: true)
       popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
       Task { await store.refresh() }
@@ -43,14 +52,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
   }
   func showSettings() {
     popover.performClose(nil)
+    let screen = item.button?.window?.screen ?? NSScreen.main
+    let height = min(780, (screen?.visibleFrame.height ?? 840) - 60)
     if settingsWindow == nil {
-      let controller = NSHostingController(rootView: SettingsView(store: store))
+      let controller = NSHostingController(
+        rootView: SettingsView(store: store, panelHeight: height))
       let window = NSWindow(contentViewController: controller)
       window.title = "Usage Monitor 설정"
       window.styleMask = [.titled, .closable, .miniaturizable]
       window.isReleasedWhenClosed = false
-      window.center()
       settingsWindow = window
+    }
+    if let window = settingsWindow {
+      if let controller = window.contentViewController as? NSHostingController<SettingsView> {
+        controller.rootView = SettingsView(store: store, panelHeight: height)
+      }
+      window.setContentSize(NSSize(width: 540, height: height))
+      if let frame = screen?.visibleFrame {
+        window.setFrameOrigin(
+          NSPoint(
+            x: frame.midX - window.frame.width / 2,
+            y: frame.midY - window.frame.height / 2))
+      }
     }
     NSApp.activate(ignoringOtherApps: true)
     settingsWindow?.makeKeyAndOrderFront(nil)

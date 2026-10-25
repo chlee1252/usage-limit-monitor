@@ -3,13 +3,6 @@ import SwiftUI
 import UsageCore
 import UserNotifications
 
-struct Preferences: Codable {
-  var enabled: Set<Provider> = Set(Provider.allCases)
-  var threshold = 80
-  var notifications = false
-  var codexExecutable = CodexClient.locateExecutable()
-}
-
 @MainActor final class MonitorStore: ObservableObject {
   @Published var preferences: Preferences { didSet { persistPreferences() } }
   @Published var snapshots: [Provider: Snapshot] = [:]
@@ -165,20 +158,27 @@ struct Preferences: Codable {
     guard
       settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional
     else { return }
-    let threshold = preferences.threshold
+    let rule = preferences.alertRule
     for provider in visibleProviders {
       guard errors[provider] == nil, let snapshot = snapshots[provider] else { continue }
-      for window in ledger.eligible(snapshot, threshold: threshold) {
+      for alert in ledger.pending(snapshot, rule: rule) {
+        guard preferences.notifications, preferences.alertRule == rule,
+          preferences.enabled.contains(provider)
+        else { continue }
+        let window = alert.window
         let content = UNMutableNotificationContent()
         content.title = "\(provider.name) 사용량 \(Int(window.usedPercent.rounded()))%"
-        content.body = "\(window.name) 한도가 알림 기준 \(threshold)%에 도달했습니다."
+        content.body =
+          rule.mode == .threshold
+          ? "\(window.name) 한도가 알림 기준 \(alert.milestone)%에 도달했습니다."
+          : "\(window.name) 한도가 \(alert.milestone)% 구간에 도달했습니다. \(rule.interval)%마다 알려드려요."
         content.sound = .default
         do {
           try await center.add(
             UNNotificationRequest(
-              identifier: ledger.key(provider: provider, window: window, threshold: threshold),
+              identifier: ledger.key(provider: provider, alert: alert, rule: rule),
               content: content, trigger: nil))
-          ledger.mark(provider: provider, window: window, threshold: threshold)
+          ledger.mark(provider: provider, alert: alert, rule: rule)
           try Storage.save(ledger, to: ledgerURL)
         } catch { notice = "알림 처리 실패: \(error.localizedDescription)" }
       }
